@@ -25,25 +25,64 @@ export default function App() {
   const [activeKind, setActiveKind] = useState<InboxKind | null>(null);
   const data = useMemo(() => tiles, [tiles]);
 
-  const onPress = (tile: Tile) => {
-    setActiveKind(tile.id);
-  };
-
-  const updateStatus = (kind: InboxKind, status: Tile['status']) => {
+  const onPress = (tile: Tile) => setActiveKind(tile.id);
+  const updateStatus = (kind: InboxKind, status: Tile['status']) =>
     setTiles(prev => prev.map(t => (t.id === kind ? { ...t, status } : t)));
-  };
-
   const onCloseModal = () => setActiveKind(null);
 
-  const onPicked = (kind: InboxKind, fileNames: string[]) => {
-    // 受付 → 解析中 → 完了 の擬似進行（体験用）
+  // 受け取るファイルの形（web）
+  type PickedFile = { name: string; type?: string; text?: string };
+
+  const onPicked = async (kind: InboxKind, files: PickedFile[]) => {
     updateStatus(kind, '解析中');
-    setTimeout(() => {
-      updateStatus(kind, fileNames.length ? '完了' : '要確認');
-      if (fileNames.length) {
-        Alert.alert('受付完了', `受け付けたファイル:\n- ${fileNames.slice(0,5).join('\n- ')}${fileNames.length > 5 ? '\n…' : ''}`);
+
+    if (kind === 'statement') {
+      // CSVだけを処理
+      const csvFiles = files.filter(f =>
+        (f.name || '').toLowerCase().endsWith('.csv') || (f.type || '').includes('text/csv')
+      );
+
+      let total = initTotals();
+      let parsedCount = 0;
+
+      for (const f of csvFiles) {
+        const text = f.text ?? '';
+        if (!text) continue;
+        const rows = parseCSV(text);
+        if (!rows.length) continue;
+
+        const { headers, body } = splitHeader(rows);
+        const idx = detectColumns(headers);
+
+        for (const r of body) {
+          const desc = safe(r, idx.description);
+          const amountStr = safe(r, idx.amount);
+          const amt = parseAmount(amountStr);
+          if (!amt && !desc) continue;
+
+          const kind = classify(desc);
+          addToTotals(total, kind, amt);
+        }
+        parsedCount++;
       }
-    }, 900);
+
+      setTimeout(() => {
+        updateStatus('statement', parsedCount > 0 ? '完了' : '要確認');
+        const msg = parsedCount
+          ? formatTotalsAlert(total, parsedCount)
+          : 'CSVが見つからなかったか、読み取れませんでした。';
+        Alert.alert('明細の取り込み結果', msg);
+      }, 300);
+      return;
+    }
+
+    // それ以外は今日はダミー
+    setTimeout(() => {
+      updateStatus(kind, files.length ? '完了' : '要確認');
+      if (files.length) {
+        Alert.alert('受付完了', `受け付けたファイル:\n- ${files.slice(0, 6).map(f => f.name).join('\n- ')}${files.length > 6 ? '\n…' : ''}`);
+      }
+    }, 300);
   };
 
   const renderItem = ({ item }: { item: Tile }) => (
@@ -73,7 +112,7 @@ export default function App() {
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <StatusPill label={item.status} />
         <Text style={{ marginLeft: 8, color: '#999', fontSize: 12 }}>
-          {Platform.OS === 'web' ? 'ファイル選択できます' : 'タップでアップロード（次の手で実装）'}
+          {Platform.OS === 'web' ? 'CSV を選ぶとその場で解析' : 'タップでアップロード（次の手で実装）'}
         </Text>
       </View>
     </Pressable>
@@ -100,13 +139,14 @@ export default function App() {
           visible={!!activeKind}
           kind={activeKind}
           onClose={onCloseModal}
-          onPicked={(names) => onPicked(activeKind, names)}
+          onPicked={(picked) => onPicked(activeKind, picked as any)}
         />
       )}
     </SafeAreaView>
   );
 }
 
+/* ---------- UI 小物 ---------- */
 function StatusPill({ label }: { label: string }) {
   const bg = label === '完了' ? '#E7F6EC'
     : label === '要確認' ? '#FFF3E0'
@@ -128,4 +168,112 @@ function StatusPill({ label }: { label: string }) {
       <Text style={{ color, fontSize: 12, fontWeight: '700' }}>{label}</Text>
     </View>
   );
+}
+
+/* ---------- ここから CSV 解析の最小実装（依存なし） ---------- */
+
+type Kind =
+  | 'base'
+  | 'incentive'
+  | 'tip'
+  | 'adjust_plus'
+  | 'adjust_minus'
+  | 'fee'
+  | 'cash_received';
+
+type Totals = Record<Kind, number>;
+
+function initTotals(): Totals {
+  return { base: 0, incentive: 0, tip: 0, adjust_plus: 0, adjust_minus: 0, fee: 0, cash_received: 0 };
+}
+
+function addToTotals(t: Totals, kind: Kind, amount: number) {
+  t[kind] += amount;
+}
+
+function parseAmount(s: string): number {
+  // 数字・マイナス・小数点以外を除去して数値化（¥や,を除く）
+  const n = parseFloat((s || '').replace(/[^\d\.-]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  let i = 0, cur = '', row: string[] = [], q = false;
+  while (i < text.length) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { cur += '"'; i++; }
+        else { q = false; }
+      } else { cur += c; }
+    } else {
+      if (c === '"') q = true;
+      else if (c === ',') { row.push(cur); cur = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++;
+        row.push(cur); rows.push(row); row = []; cur = '';
+      } else { cur += c; }
+    }
+    i++;
+  }
+  row.push(cur); rows.push(row);
+  // 空行を除去
+  return rows.filter(r => r.some(cell => cell.trim().length));
+}
+
+function splitHeader(rows: string[][]) {
+  const headers = rows[0].map(h => h.trim());
+  const body = rows.slice(1);
+  return { headers, body };
+}
+
+function detectColumns(headers: string[]) {
+  const lower = headers.map(h => h.toLowerCase());
+  const find = (cands: string[]) =>
+    Math.max(0, lower.findIndex(h => cands.some(c => h.includes(c))));
+  return {
+    description: find(['desc', '項目', '内容', 'type', '説明', '内訳', '明細']),
+    amount: find(['amount', '金額', '支払', 'payout', 'fare', 'total', '合計'])
+  };
+}
+
+function safe(row: string[], idx: number): string {
+  return row[idx] ?? '';
+}
+
+const DICT: Record<Kind, string[]> = {
+  base: ['基本', 'ベース', '通常', 'base', 'trip', 'delivery', '配達料金', 'fare'],
+  incentive: ['ブースト', 'クエスト', 'プロモ', 'ピーク', 'ボーナス', 'promotion', 'boost', 'quest', 'peak', 'incentive'],
+  tip: ['チップ', 'tip'],
+  adjust_plus: ['未払い回収', '補填', '調整(+)', 'adjustment +', 'adjustment', '補償', 'reimbursement'],
+  adjust_minus: ['返金', '調整(-)', 'ペナルティ', 'adjustment -', 'penalty', 'chargeback'],
+  fee: ['手数料', '振込手数料', 'fee', 'deposit fee'],
+  cash_received: ['現金で相殺', '現金受取', 'cash collected', 'cash to collect']
+};
+
+function classify(descRaw: string): Kind {
+  const d = (descRaw || '').toLowerCase();
+  for (const k of Object.keys(DICT) as Kind[]) {
+    if (DICT[k].some(w => d.includes(w))) return k;
+  }
+  // 見つからなければ金額の符号でざっくり推定（正はbase、負はfee扱い）
+  return /-/.test(descRaw) ? 'fee' : 'base';
+}
+
+function yen(n: number) {
+  return '¥' + Math.round(n).toLocaleString('ja-JP');
+}
+
+function formatTotalsAlert(t: Totals, fileCount: number) {
+  const rev = t.base + t.incentive + t.tip + t.adjust_plus - Math.max(0, t.adjust_minus);
+  const lines = [
+    `処理したCSV: ${fileCount}件`,
+    `収入合計: ${yen(rev)}`,
+    `  - 基本 ${yen(t.base)} / インセン ${yen(t.incentive)} / チップ ${yen(t.tip)} / 調整+ ${yen(t.adjust_plus)}`,
+    `費用合計: ${yen(t.fee)}（手数料）`,
+    `調整-: ${yen(t.adjust_minus)}`,
+    `現金受取: ${yen(t.cash_received)}`
+  ];
+  return lines.join('\n');
 }
