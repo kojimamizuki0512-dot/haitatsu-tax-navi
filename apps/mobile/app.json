@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "配達員確定申告ナビ",
+    "slug": "haitatsu-tax-navi",
+    "scheme": "haitatsutax",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "com.jikyuhacker.haitatsutax",
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "com.jikyuhacker.haitatsutax"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
