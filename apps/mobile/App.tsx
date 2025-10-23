@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
-import { Alert, SafeAreaView, View, Text, Pressable, FlatList } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Alert, SafeAreaView, View, Text, Pressable, FlatList, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import UploadModal from './UploadModal';
 
 type InboxKind = 'work' | 'statement' | 'bank' | 'entry';
 
@@ -12,7 +13,7 @@ type Tile = {
   status: '受付待ち' | '解析中' | '完了' | '要確認';
 };
 
-const TILES: Tile[] = [
+const INITIAL_TILES: Tile[] = [
   { id: 'work',      title: '稼働（日次）',           subtitle: 'スクショ／メモ音声',          emoji: '📈', status: '受付待ち' },
   { id: 'statement', title: '明細（CSV/PDF）',        subtitle: 'Uber/出前館/Wolt ほか',       emoji: '📄', status: '受付待ち' },
   { id: 'bank',      title: '銀行（CSV）',            subtitle: 'MUFG / SMBC',                 emoji: '🏦', status: '受付待ち' },
@@ -20,14 +21,29 @@ const TILES: Tile[] = [
 ];
 
 export default function App() {
-  const data = useMemo(() => TILES, []);
+  const [tiles, setTiles] = useState<Tile[]>(INITIAL_TILES);
+  const [activeKind, setActiveKind] = useState<InboxKind | null>(null);
+  const data = useMemo(() => tiles, [tiles]);
 
   const onPress = (tile: Tile) => {
-    Alert.alert(
-      tile.title,
-      'アップロード画面と解析は次の手で実装します。\n今日は「INBOXの入口」を先に置きます。',
-      [{ text: 'OK' }]
-    );
+    setActiveKind(tile.id);
+  };
+
+  const updateStatus = (kind: InboxKind, status: Tile['status']) => {
+    setTiles(prev => prev.map(t => (t.id === kind ? { ...t, status } : t)));
+  };
+
+  const onCloseModal = () => setActiveKind(null);
+
+  const onPicked = (kind: InboxKind, fileNames: string[]) => {
+    // 受付 → 解析中 → 完了 の擬似進行（体験用）
+    updateStatus(kind, '解析中');
+    setTimeout(() => {
+      updateStatus(kind, fileNames.length ? '完了' : '要確認');
+      if (fileNames.length) {
+        Alert.alert('受付完了', `受け付けたファイル:\n- ${fileNames.slice(0,5).join('\n- ')}${fileNames.length > 5 ? '\n…' : ''}`);
+      }
+    }, 900);
   };
 
   const renderItem = ({ item }: { item: Tile }) => (
@@ -56,7 +72,9 @@ export default function App() {
       <Text style={{ color: '#666', marginBottom: 12 }}>{item.subtitle}</Text>
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <StatusPill label={item.status} />
-        <Text style={{ marginLeft: 8, color: '#999', fontSize: 12 }}>タップでアップロード（ダミー）</Text>
+        <Text style={{ marginLeft: 8, color: '#999', fontSize: 12 }}>
+          {Platform.OS === 'web' ? 'ファイル選択できます' : 'タップでアップロード（次の手で実装）'}
+        </Text>
       </View>
     </Pressable>
   );
@@ -75,6 +93,16 @@ export default function App() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
       />
+
+      {/* アップロードモーダル */}
+      {activeKind && (
+        <UploadModal
+          visible={!!activeKind}
+          kind={activeKind}
+          onClose={onCloseModal}
+          onPicked={(names) => onPicked(activeKind, names)}
+        />
+      )}
     </SafeAreaView>
   );
 }
