@@ -6,13 +6,21 @@
     "version": "0.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
+
     "ios": {
       "bundleIdentifier": "com.jikyuhacker.haitatsutax",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "入口カード作成のためにカメラを使用します。"
+      }
     },
+
     "android": {
-      "package": "com.jikyuhacker.haitatsutax"
+      "package": "com.jikyuhacker.haitatsutax",
+      "permissions": ["CAMERA", "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO"]
+      // Android 12以下も強くサポートしたい場合は "READ_EXTERNAL_STORAGE" を追加してOK
     },
+
     "web": {
       "bundler": "metro"
     }
