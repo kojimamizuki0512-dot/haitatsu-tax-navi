@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Alert, SafeAreaView, View, Text, Pressable, FlatList, Platform, Image } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import UploadModal from './UploadModal';
+import { DICT } from './profiles'; // ★ 辞書を外部ファイルから読み込み
 
 type InboxKind = 'work' | 'statement' | 'bank' | 'entry';
 
@@ -243,18 +244,12 @@ function detectColumns(headers: string[]) {
   return { description: find(['desc','項目','内容','type','説明','内訳','明細']), amount: find(['amount','金額','支払','payout','fare','total','合計']) };
 }
 function safe(row: string[], idx: number): string { return row[idx] ?? ''; }
-const DICT: Record<Kind, string[]> = {
-  base: ['基本','ベース','通常','base','trip','delivery','配達料金','fare'],
-  incentive: ['ブースト','クエスト','プロモ','ピーク','ボーナス','promotion','boost','quest','peak','incentive'],
-  tip: ['チップ','tip'],
-  adjust_plus: ['未払い回収','補填','調整(+)','adjustment +','adjustment','補償','reimbursement'],
-  adjust_minus: ['返金','調整(-)','ペナルティ','adjustment -','penalty','chargeback'],
-  fee: ['手数料','振込手数料','fee','deposit fee'],
-  cash_received: ['現金で相殺','現金受取','cash collected','cash to collect']
-};
 function classify(descRaw: string): Kind {
   const d = (descRaw || '').toLowerCase();
-  for (const k of Object.keys(DICT) as Kind[]) if (DICT[k].some(w => d.includes(w))) return k;
+  // ★ 辞書を外部から利用
+  for (const k of Object.keys(DICT) as Kind[]) {
+    if (DICT[k].some(w => d.includes(w))) return k;
+  }
   return /-/.test(descRaw) ? 'fee' : 'base';
 }
 function yen(n: number) { return '¥' + Math.round(n).toLocaleString('ja-JP'); }
